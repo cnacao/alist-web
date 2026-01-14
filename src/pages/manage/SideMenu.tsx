@@ -1,5 +1,13 @@
 import { Box, Flex, Heading, HStack, Icon, VStack } from "@hope-ui/solid"
-import { createMemo, createSignal, For, Match, Show, Switch } from "solid-js"
+import {
+  createMemo,
+  createSignal,
+  For,
+  Match,
+  Show,
+  Switch,
+  JSX,
+} from "solid-js"
 import { useRouter, useT } from "~/hooks"
 import { BiSolidRightArrow } from "solid-icons/bi"
 import { onClose } from "./Header"
@@ -13,7 +21,7 @@ import { IconTypes } from "solid-icons"
 export interface SideMenuItemProps {
   title: string
   to: string
-  icon?: IconTypes
+  icon?: IconTypes | ((props: { active?: boolean; style?: any }) => JSX.Element)
   children?: SideMenuItemProps[]
   role?: number
   external?: true
@@ -22,11 +30,24 @@ export interface SideMenuItemProps {
 
 const SideMenuItem = (props: SideMenuItemProps) => {
   const ifShow = createMemo(() => {
-    if (!UserMethods.is_admin(me())) {
-      if (props.role === undefined) return false
-      else if (props.role === UserRole.GENERAL && !UserMethods.is_general(me()))
-        return false
+    // 使用层级权限检查
+    if (props.role !== undefined && !UserMethods.hasAccess(me(), props.role)) {
+      return false
     }
+
+    // 如果有子菜单项，检查是否有可见的子菜单项
+    if (props.children) {
+      const hasVisibleChildren = props.children.some((child) => {
+        if (child.role !== undefined) {
+          return UserMethods.hasAccess(me(), child.role)
+        }
+        return true
+      })
+      if (!hasVisibleChildren) {
+        return false
+      }
+    }
+
     return true
   })
   return (
@@ -76,8 +97,16 @@ const SideMenuItemWithTo = (props: SideMenuItemProps) => {
       external={props.external}
       // _active={{ transform: "scale(.95)", transition: "0.1s" }}
     >
-      <Show when={props.icon}>{<Icon mr="$2" as={props.icon} />}</Show>
-      <Heading>{t(props.title)}</Heading>
+      <HStack spacing="$2">
+        <Show when={props.icon}>
+          {typeof props.icon === "function" ? (
+            props.icon({ active: isActive() })
+          ) : (
+            <Icon as={props.icon} />
+          )}
+        </Show>
+        <Heading>{t(props.title)}</Heading>
+      </HStack>
     </AnchorWithBase>
   )
 }
@@ -86,6 +115,18 @@ const SideMenuItemWithChildren = (props: SideMenuItemProps) => {
   const { pathname } = useRouter()
   const [open, setOpen] = createSignal(pathname().includes(props.to))
   const t = useT()
+
+  // 检查是否有可见的子菜单项
+  const hasVisibleChildren = createMemo(() => {
+    if (!props.children) return false
+    return props.children.some((child) => {
+      if (child.role !== undefined) {
+        return UserMethods.hasAccess(me(), child.role)
+      }
+      return true
+    })
+  })
+
   return (
     <Box w="$full">
       <Flex
@@ -103,8 +144,14 @@ const SideMenuItemWithChildren = (props: SideMenuItemProps) => {
         rounded="$md"
         cursor="pointer"
       >
-        <HStack>
-          <Show when={props.icon}>{<Icon mr="$2" as={props.icon} />}</Show>
+        <HStack spacing="$2">
+          <Show when={props.icon}>
+            {typeof props.icon === "function" ? (
+              props.icon({ active: false })
+            ) : (
+              <Icon as={props.icon} />
+            )}
+          </Show>
           <Heading>{t(props.title)}</Heading>
         </HStack>
         <Icon
@@ -113,7 +160,7 @@ const SideMenuItemWithChildren = (props: SideMenuItemProps) => {
           transition="transform 0.2s"
         />
       </Flex>
-      <Show when={open()}>
+      <Show when={open() && hasVisibleChildren()}>
         <Box pl="$2">
           <SideMenu items={props.children!} />
         </Box>

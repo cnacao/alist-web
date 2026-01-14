@@ -2,10 +2,13 @@ import { Box, useColorModeValue } from "@hope-ui/solid"
 import { createMemo, Show, createResource, on } from "solid-js"
 import { Markdown, MaybeLoading } from "~/components"
 import { useLink, useRouter } from "~/hooks"
-import { objStore, recoverScroll, State } from "~/store"
+import { getSettingBool, objStore, State } from "~/store"
 import { fetchText } from "~/utils"
 
-export const Readme = () => {
+export function Readme(props: {
+  files: string[]
+  fromMeta: keyof typeof objStore
+}) {
   const cardBg = useColorModeValue("white", "$neutral3")
   const { proxyLink } = useLink()
   const { pathname } = useRouter()
@@ -21,15 +24,20 @@ export const Readme = () => {
           return ""
         }
         if ([State.FetchingMore, State.Folder].includes(objStore.state)) {
-          const obj = objStore.objs.find(
-            (item) => item.name.toLowerCase() === "readme.md",
+          const obj = objStore.objs.find((item) =>
+            props.files.find(
+              (file) => file.toLowerCase() === item.name.toLowerCase(),
+            ),
           )
           if (obj) {
             return proxyLink(obj, true)
           }
         }
-        if (objStore.readme) {
-          return objStore.readme
+        if (
+          objStore[props.fromMeta] &&
+          typeof objStore[props.fromMeta] === "string"
+        ) {
+          return objStore[props.fromMeta] as string
         }
         return ""
       },
@@ -42,17 +50,18 @@ export const Readme = () => {
     if (/^https?:\/\//g.test(readme)) {
       res = await fetchText(readme)
     }
-    setTimeout(() => {
-      recoverScroll(pathname())
-    })
     return res
   }
   const [content] = createResource(readme, fetchContent)
   return (
-    <Show when={readme()}>
+    <Show when={getSettingBool("readme_autorender") && readme()}>
       <Box w="$full" rounded="$xl" p="$4" bgColor={cardBg()} shadow="$lg">
         <MaybeLoading loading={content.loading}>
-          <Markdown children={content()?.content} />
+          <Markdown
+            children={content()?.content}
+            readme
+            toc={props.fromMeta === "readme"}
+          />
         </MaybeLoading>
       </Box>
     </Show>

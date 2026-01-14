@@ -1,28 +1,53 @@
-import { Center, VStack, Icon, Text, Checkbox } from "@hope-ui/solid"
+import { Badge, Box, Center, HStack, Icon, Text, VStack } from "@hope-ui/solid"
 import { Motion } from "@motionone/solid"
 import { useContextMenu } from "solid-contextmenu"
-import { batch, createMemo, createSignal, Show } from "solid-js"
+import { batch, Show, createMemo } from "solid-js"
 import { CenterLoading, LinkWithPush, ImageWithError } from "~/components"
-import { usePath, useUtil } from "~/hooks"
-import { checkboxOpen, getMainColor, selectAll, selectIndex } from "~/store"
-import { ObjType, StoreObj } from "~/types"
-import { bus, hoverColor } from "~/utils"
+import { usePath, useRouter, useUtil, useT } from "~/hooks"
+import {
+  checkboxOpen,
+  getMainColor,
+  local,
+  selectIndex,
+  StoreObj,
+} from "~/store"
+import { Obj, ObjType } from "~/types"
+import { bus, hoverColor, normalizeStorageClass } from "~/utils"
 import { getIconByObj } from "~/utils/icon"
+import { ItemCheckbox, useSelectWithMouse } from "./helper"
+import { pathJoin } from "~/utils/path"
 
-export const GridItem = (props: { obj: StoreObj; index: number }) => {
+export const GridItem = (props: { obj: StoreObj & Obj; index: number }) => {
   const { isHide } = useUtil()
   if (isHide(props.obj)) {
     return null
   }
   const { setPathAs } = usePath()
   const objIcon = (
-    <Icon color={getMainColor()} boxSize="$12" as={getIconByObj(props.obj)} />
-  )
-  const [hover, setHover] = createSignal(false)
-  const showCheckbox = createMemo(
-    () => checkboxOpen() && (hover() || props.obj.selected),
+    <Icon
+      color={getMainColor()}
+      boxSize={`${parseInt(local["grid_item_size"]) - 30}px`}
+      as={getIconByObj(props.obj)}
+    />
   )
   const { show } = useContextMenu({ id: 1 })
+  const { pushHref, to, pathname } = useRouter()
+  const t = useT()
+  const { openWithDoubleClick, toggleWithClick, restoreSelectionCache } =
+    useSelectWithMouse()
+  const storageClassKey = createMemo(() =>
+    normalizeStorageClass(props.obj.storage_class),
+  )
+  const storageClassLabel = createMemo(() => {
+    const key = storageClassKey()
+    return key ? t(`home.storage_class.${key}`) : undefined
+  })
+
+  // 构建完整路径
+  const getFullPath = () => {
+    return pathJoin(pathname(), props.obj.name)
+  }
+
   return (
     <Motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -33,7 +58,9 @@ export const GridItem = (props: { obj: StoreObj; index: number }) => {
       }}
     >
       <VStack
-        class="grid-item"
+        classList={{ selected: !!props.obj.selected }}
+        class="grid-item viselect-item"
+        data-index={props.index}
         w="$full"
         p="$1"
         spacing="$1"
@@ -45,19 +72,32 @@ export const GridItem = (props: { obj: StoreObj; index: number }) => {
         }}
         as={LinkWithPush}
         href={props.obj.name}
-        onMouseEnter={() => {
-          setHover(true)
-          setPathAs(props.obj.name, props.obj.is_dir, true)
+        cursor={
+          openWithDoubleClick() || toggleWithClick() ? "default" : "pointer"
+        }
+        bgColor={props.obj.selected ? hoverColor() : undefined}
+        on:dblclick={() => {
+          if (!openWithDoubleClick()) return
+          selectIndex(props.index, true, true)
+          to(getFullPath())
         }}
-        onMouseLeave={() => {
-          setHover(false)
+        on:click={(e: MouseEvent) => {
+          e.preventDefault()
+          if (openWithDoubleClick()) return
+          if (e.ctrlKey || e.metaKey || e.shiftKey) return
+          if (!restoreSelectionCache()) return
+          if (toggleWithClick())
+            return selectIndex(props.index, !props.obj.selected)
+          to(getFullPath())
+        }}
+        onMouseEnter={() => {
+          setPathAs(props.obj.name, props.obj.is_dir, true)
         }}
         onContextMenu={(e: MouseEvent) => {
           batch(() => {
             // if (!checkboxOpen()) {
             //   toggleCheckbox();
             // }
-            selectAll(false)
             selectIndex(props.index, true, true)
           })
           show(e, { props: props.obj })
@@ -65,26 +105,29 @@ export const GridItem = (props: { obj: StoreObj; index: number }) => {
       >
         <Center
           class="item-thumbnail"
-          h="70px"
+          h={`${parseInt(local["grid_item_size"])}px`}
           w="$full"
-          // @ts-ignore
-          on:click={(e) => {
-            if (props.obj.type === ObjType.IMAGE) {
-              e.stopPropagation()
-              e.preventDefault()
-              bus.emit("gallery", props.obj.name)
-            }
+          cursor={props.obj.type !== ObjType.IMAGE ? "inherit" : "pointer"}
+          on:click={(e: MouseEvent) => {
+            if (props.obj.type !== ObjType.IMAGE) return
+            if (e.ctrlKey || e.metaKey || e.shiftKey) return
+            if (!restoreSelectionCache()) return
+            bus.emit("gallery", props.obj.name)
+            e.preventDefault()
+            e.stopPropagation()
           }}
           pos="relative"
         >
-          <Show when={showCheckbox()}>
-            <Checkbox
+          <Show when={checkboxOpen()}>
+            <ItemCheckbox
               pos="absolute"
               left="$1"
               top="$1"
               // colorScheme="neutral"
-              // @ts-ignore
-              on:click={(e) => {
+              on:mousedown={(e: MouseEvent) => {
+                e.stopPropagation()
+              }}
+              on:click={(e: MouseEvent) => {
                 e.stopPropagation()
               }}
               checked={props.obj.selected}
@@ -106,19 +149,31 @@ export const GridItem = (props: { obj: StoreObj; index: number }) => {
             />
           </Show>
         </Center>
-        <Text
-          css={{
-            whiteSpace: "nowrap",
-            textOverflow: "ellipsis",
-          }}
-          w="$full"
-          overflow="hidden"
-          textAlign="center"
-          fontSize="$sm"
-          title={props.obj.name}
-        >
-          {props.obj.name}
-        </Text>
+        <VStack spacing="$1" w="$full" alignItems="center">
+          <Text
+            css={{
+              whiteSpace: "nowrap",
+              textOverflow: "ellipsis",
+            }}
+            w="$full"
+            overflow="hidden"
+            textAlign="center"
+            fontSize="$sm"
+            title={props.obj.name}
+          >
+            {props.obj.name}
+          </Text>
+          <Show when={storageClassLabel()}>
+            <Badge
+              variant="subtle"
+              colorScheme="primary"
+              textTransform="none"
+              css={{ "font-size": "0.65rem" }}
+            >
+              {storageClassLabel()}
+            </Badge>
+          </Show>
+        </VStack>
       </VStack>
     </Motion.div>
   )

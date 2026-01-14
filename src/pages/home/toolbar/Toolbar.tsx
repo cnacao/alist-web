@@ -14,6 +14,10 @@ import { PackageDownloadModal } from "./Download"
 import { lazy } from "solid-js"
 import { ModalWrapper } from "./ModalWrapper"
 import { LocalSettings } from "./LocalSettings"
+import { BackTop } from "./BackTop"
+import { Decompress } from "~/pages/home/toolbar/Decompress"
+import { S3TransitionModal } from "~/pages/home/toolbar/S3TransitionModal"
+
 const Upload = lazy(() => import("../uploads/Upload"))
 
 export const Modal = () => {
@@ -23,6 +27,8 @@ export const Modal = () => {
       <Move />
       <Rename />
       <Delete />
+      <Decompress />
+      <S3TransitionModal />
       <NewFile />
       <Mkdir />
       <RecursiveMove />
@@ -44,6 +50,7 @@ export const Toolbar = () => {
       <Right />
       <Center />
       <Modal />
+      <BackTop />
     </Portal>
   )
 }

@@ -29,6 +29,7 @@ import {
   supported,
   CredentialCreationOptionsJSON,
 } from "@github/webauthn-json/browser-ponyfill"
+import { PublicKeys } from "./PublicKeys"
 
 const PermissionBadge = (props: { can: boolean; children: JSXElement }) => {
   return (
@@ -41,10 +42,11 @@ const PermissionBadge = (props: { can: boolean; children: JSXElement }) => {
 const Profile = () => {
   const t = useT()
   useManageTitle("manage.sidemenu.profile")
-  const { to } = useRouter()
+  const { searchParams, to } = useRouter()
   const [username, setUsername] = createSignal(me().username)
   const [password, setPassword] = createSignal("")
   const [confirmPassword, setConfirmPassword] = createSignal("")
+  const usecompatibility = getSettingBool("sso_compatibility_mode")
   const [loading, save] = useFetch(
     (ssoID?: boolean): PEmptyResp =>
       r.post("/me/update", {
@@ -100,6 +102,11 @@ const Profile = () => {
         to("")
       }
     })
+  }
+  const ssoID = searchParams["sso_id"]
+  if (ssoID) {
+    setMe({ ...me(), sso_id: ssoID })
+    saveMe(true)
   }
   function messageEvent(event: MessageEvent) {
     const data = event.data
@@ -228,11 +235,11 @@ const Profile = () => {
               <Button
                 onClick={() => {
                   const url = r.getUri() + "/auth/sso?method=get_sso_id"
-                  const popup = window.open(
-                    url,
-                    "authPopup",
-                    "width=500,height=600",
-                  )
+                  if (usecompatibility) {
+                    window.location.href = url
+                    return
+                  }
+                  window.open(url, "authPopup", "width=500,height=600")
                 }}
               >
                 {t("users.connect_sso")}
@@ -276,7 +283,7 @@ const Profile = () => {
               return
             }
             const resp = await getauthntemp()
-            handleRespWithoutNotify(resp, async (data) => {
+            handleResp(resp, async (data) => {
               const options = parseCreationOptionsFromJSON(data.options)
               const session = data.session
               try {
@@ -305,6 +312,7 @@ const Profile = () => {
           )}
         </For>
       </HStack>
+      <PublicKeys isMine={true} userId={me().id} />
     </VStack>
   )
 }

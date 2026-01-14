@@ -3,15 +3,16 @@ import "./audio.css"
 import APlayer from "aplayer"
 import { Box } from "@hope-ui/solid"
 import { onCleanup, onMount } from "solid-js"
-import { useLink } from "~/hooks"
-import { getSetting, getSettingBool, objStore } from "~/store"
+import { useLink, useRouter, useTitle } from "~/hooks"
+import { getMainColor, getSetting, getSettingBool, objStore } from "~/store"
 import { ObjType, StoreObj } from "~/types"
-import { baseName } from "~/utils"
+import { baseName, fsGet } from "~/utils"
 
 const Preview = () => {
-  const { proxyLink, rawLink } = useLink()
+  const { proxyLink, rawLink, previewPage } = useLink()
+  const { searchParams } = useRouter()
   let audios = objStore.objs.filter((obj) => obj.type === ObjType.AUDIO)
-  if (audios.length === 0) {
+  if (audios.length === 0 || searchParams["from"] === "search") {
     audios = [objStore.obj]
   }
   let ap: any
@@ -23,33 +24,101 @@ const Preview = () => {
     if (lrcObj) {
       lrc = proxyLink(lrcObj, true)
     }
-    return {
+    let cover = undefined
+    const coverObj = objStore.objs.find((o) => {
+      return (
+        o.type === ObjType.IMAGE &&
+        (baseName(o.name).toLowerCase() === baseName(obj.name).toLowerCase() ||
+          baseName(o.name).toLowerCase() === "front" ||
+          baseName(o.name).toLowerCase() === "cover" ||
+          baseName(o.name).toLowerCase() === "folder")
+      )
+    })
+    if (coverObj) {
+      cover = rawLink(coverObj, true)
+    } else {
+      cover =
+        obj.thumb ||
+        getSetting("audio_cover") ||
+        "https://jsd.nn.ci/gh/alist-org/logo@main/logo.svg"
+    }
+    const audio = {
       name: obj.name,
       artist: "Unknown",
       url: rawLink(obj, true),
-      cover:
-        getSetting("audio_cover") ||
-        "https://jsd.nn.ci/gh/alist-org/logo@main/logo.svg",
+      cover: cover,
       lrc: lrc,
     }
+    if (objStore.provider === "NeteaseMusic") {
+      const matched = obj.name.match(/((.+)\s-\s)?(.+)\.(mp3|flac)/)
+      audio.artist = matched?.[2] || "Unknown"
+      audio.name = matched?.[3] || obj.name
+      const lrcURL = new URL(previewPage(obj).replace(/\.(mp3|flac)/, ".lrc"))
+      audio.lrc = decodeURIComponent(lrcURL.pathname)
+    }
+    return audio
   }
   onMount(() => {
     ap = new APlayer({
       container: document.querySelector("#audio-player"),
       mini: false,
       autoplay: getSettingBool("audio_autoplay"),
+      theme: getMainColor(),
       loop: "all",
-      order: "random",
+      order: "list",
       preload: "auto",
       volume: 0.7,
       mutex: true,
       listFolded: false,
-      lrcType: 3,
+      lrcType: objStore.provider === "NeteaseMusic" ? 1 : 3,
       audio: audios.map(objToAudio),
     })
+    if (objStore.provider === "NeteaseMusic") {
+      ap.on("loadstart", () => {
+        const i = ap.list.index
+        if (!ap.list.audios[i].lrc) return
+        const lrcURL = ap.list.audios[i].lrc
+        console.log("lrcURL", lrcURL)
+
+        fsGet(lrcURL).then((resp) => {
+          ap.lrc.async = true
+          ap.lrc.parsed[i] = undefined
+          ap.list.audios[i].lrc = resp.data.raw_url
+          ap.lrc.switch(i) // fetch lrc into `parsed`
+          ap.list.audios[i].lrc = ""
+          ap.lrc.async = false
+        })
+      })
+    }
     const curIndex = audios.findIndex((obj) => obj.name === objStore.obj.name)
     if (curIndex !== -1) {
       ap.list.switch(curIndex)
+    }
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.setActionHandler("seekto", (evt) =>
+        ap.seek(evt.seekTime),
+      )
+      if (ap.list.audios.length > 1) {
+        navigator.mediaSession.setActionHandler("previoustrack", () => {
+          ap.skipBack()
+        })
+        navigator.mediaSession.setActionHandler("nexttrack", () => {
+          ap.skipForward()
+        })
+      }
+      ap.on("play", () => {
+        const current = ap.list.audios[ap.list.index]
+        useTitle(current.name)
+        navigator.mediaSession.metadata = new MediaMetadata({
+          title: current.name,
+          artist: current.artist === "Unknown" ? undefined : current.artist,
+          artwork: [
+            {
+              src: current.cover,
+            },
+          ],
+        })
+      })
     }
   })
   onCleanup(() => {

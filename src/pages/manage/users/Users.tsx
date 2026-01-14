@@ -12,7 +12,7 @@ import {
   Tr,
   VStack,
 } from "@hope-ui/solid"
-import { createSignal, For } from "solid-js"
+import { createSignal, For, onMount, createMemo, Show } from "solid-js"
 import {
   useFetch,
   useListFetch,
@@ -30,17 +30,30 @@ import {
 } from "~/types"
 import { DeletePopover } from "../common/DeletePopover"
 import { Wether } from "~/components"
+import { getRoleList } from "~/utils/api"
 
-const Role = (props: { role: number }) => {
-  const roles = [
-    { name: "general", color: "info" },
-    { name: "guest", color: "neutral" },
-    { name: "admin", color: "accent" },
-  ]
+const Role = (props: { role: number[]; roleMap: Record<number, string> }) => {
+  const getBadgeColor = (roleId: number) => {
+    switch (roleId) {
+      case 1: // 访客
+        return "neutral"
+      case 2: // 管理员
+        return "success"
+      default:
+        return "info"
+    }
+  }
+
   return (
-    <Badge colorScheme={roles[props.role].color as any}>
-      {roles[props.role].name}
-    </Badge>
+    <HStack spacing="$1">
+      <For each={props.role}>
+        {(role) => (
+          <Badge colorScheme={getBadgeColor(role)}>
+            {props.roleMap[role] ?? role}
+          </Badge>
+        )}
+      </For>
+    </HStack>
   )
 }
 
@@ -68,6 +81,8 @@ const Users = () => {
   const t = useT()
   useManageTitle("manage.sidemenu.users")
   const { to } = useRouter()
+
+  // 获取用户列表
   const [getUsersLoading, getUsers] = useFetch(
     (): PPageResp<User> => r.get("/admin/user/list"),
   )
@@ -76,14 +91,34 @@ const Users = () => {
     const resp = await getUsers()
     handleResp(resp, (data) => setUsers(data.content))
   }
-  refresh()
 
+  const [roleList, setRoleList] = createSignal<{ id: number; name: string }[]>(
+    [],
+  )
+  const roleMap = createMemo<Record<number, string>>(() => {
+    const map: Record<number, string> = {}
+    for (const r of roleList()) map[r.id] = r.name
+    return map
+  })
+
+  const loadRolesOnce = async () => {
+    const resp = await getRoleList()
+    handleResp(resp, (data) => setRoleList(data.content))
+  }
+
+  onMount(() => {
+    loadRolesOnce()
+    refresh()
+  })
+
+  // 操作按钮
   const [deleting, deleteUser] = useListFetch(
     (id: number): PEmptyResp => r.post(`/admin/user/delete?id=${id}`),
   )
   const [cancel_2faId, cancel_2fa] = useListFetch(
     (id: number): PEmptyResp => r.post(`/admin/user/cancel_2fa?id=${id}`),
   )
+
   return (
     <VStack spacing="$2" alignItems="start" w="$full">
       <HStack spacing="$2">
@@ -106,15 +141,7 @@ const Users = () => {
         <Table highlightOnHover dense>
           <Thead>
             <Tr>
-              <For
-                each={[
-                  "username",
-                  "base_path",
-                  "role",
-                  "permission",
-                  "available",
-                ]}
-              >
+              <For each={["username", "role", "available"]}>
                 {(title) => <Th>{t(`users.${title}`)}</Th>}
               </For>
               <Th>{t("global.operations")}</Th>
@@ -125,12 +152,13 @@ const Users = () => {
               {(user) => (
                 <Tr>
                   <Td>{user.username}</Td>
-                  <Td>{user.base_path}</Td>
                   <Td>
-                    <Role role={user.role} />
-                  </Td>
-                  <Td>
-                    <Permissions user={user} />
+                    <Show
+                      when={Object.keys(roleMap()).length > 0}
+                      fallback={<Badge>...</Badge>}
+                    >
+                      <Role role={user.role} roleMap={roleMap()} />
+                    </Show>
                   </Td>
                   <Td>
                     <Wether yes={!user.disabled} />

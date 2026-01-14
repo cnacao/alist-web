@@ -14,15 +14,23 @@ export interface DeletePopoverProps {
   name: string
   loading: boolean
   onClick: () => void
+  disabled?: boolean
+  buttonText?: string
 }
 export const DeletePopover = (props: DeletePopoverProps) => {
   const t = useT()
+  const isDisabled = props.disabled ?? false // 默认值为 false
+  const buttonText = props.buttonText ?? t("global.delete") // 默认使用删除文本
   return (
     <Popover>
       {({ onClose }) => (
         <>
-          <PopoverTrigger as={Button} colorScheme="danger">
-            {t("global.delete")}
+          <PopoverTrigger
+            as={Button}
+            colorScheme="danger"
+            disabled={isDisabled}
+          >
+            {buttonText}
           </PopoverTrigger>
           <PopoverContent>
             <PopoverArrow />
